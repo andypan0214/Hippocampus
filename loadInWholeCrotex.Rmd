@@ -1,0 +1,346 @@
+---
+title: "wholeCrotex"
+author: "Yu-Kuan, Pan"
+date: 'Date: `r format(Sys.time(), "%m/%d/%Y")`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+#source("E:/C3 datas/whole crotex data/Crotexs.R")
+```
+
+# Single Cell: 
+  single cell rna seq: find dorsal and ventral hippocampus marker genes
+
+  data:
+  All the information was based on object ss.seurat, 
+  original raw data is provided from NCBI GSE185862 which collected by 
+  Allen Institute for Brain Science at Oct 20, 2021. in this project we had 
+  separated Hippocampus area from original dataset, ss.seurat. 
+
+# Method 
+  1.    clustering hippocampus and create new seurat object
+  2.    Elbow plot for proper dimensions, predict best dimensions while plotting
+        Tsne or Umap
+  3.    Display Tsne and Umap graphs after find nearby groups and clustering
+  4.    phologenetic tree: check relationship between idents
+  5.    Utilized differential expression
+  6.    contruct heatmap based on avg_log2FC, expression levels
+  7.    Display several feature plot  based on the result from 
+        differential expression
+  
+# Summary:
+  The purpose of this program is to create the hip.s4obj object that 
+  filtered out other regional information other than the cells that expressed 
+  on Hippocampus.  
+  
+
+## Load In Seurat.ss.rda From External Hardware
+
+```{r}
+load(file.choose())
+```
+
+
+## Meta Data
+
+```{r}
+table(ss.seurat@meta.data$region_label)
+```
+
+## Find Hip Cell Ids
+only keep the cells that are considered as Hippocampus in original metadata 
+and store the cell name within the variable HIP.sample 
+```{r}
+HIP.cellList<-filter(
+  ss.seurat@meta.data,
+  ss.seurat@meta.data$region_label=="HIP")
+HIP.sample<-HIP.cellList[,4]
+```
+
+```{r}
+# HIP.meta<-createMatrix(main = ss.seurat,Sub = HIP,Subname = "HIP",
+#              mainC = region_label, subC = sample_name,spare = TRUE)
+  
+            
+```
+
+## Subset Orig Count Matrix
+
+```{r}
+  # filter(
+  #   ss.seurat@assays$RNA@counts,
+  #   colnames(ss.seurat@assays$RNA@counts)==HIP.sample)
+```
+
+
+## Check Location Of Hip Regions In Whole Crotex
+
+```{r}
+# HIP.data<-matrix(0,nrow = nrow(ss.seurat),ncol = 1)
+# colnames(HIP.data)<-"temp"
+# rownames(HIP.data)<-rownames(ss.seurat@assays$RNA@counts)
+# HIP.data<-as.data.frame(HIP.data)
+# j=1
+# for(i in 1:ncol(ss.seurat@assays$RNA@counts)){
+#   if(colnames(ss.seurat@assays$RNA@counts)[i]==
+#      HIP.sample[j] && j<=3
+#      #j<=nrow(HIP.cellList)
+#      ){
+# 
+#     print(i)
+#     print(j)
+#     #print(colnames(ss.seurat@assays$RNA@counts)[i])
+#     cat("\n")
+#     HIP.data<-HIP.data %>% mutate(
+#       HIP.data,
+#       ss.seurat@assays$RNA@counts[,i]
+#       )
+#     print(head(HIP.data,5))
+#     colnames(HIP.data)[j]<-HIP.sample[j]
+#     j=j+1
+#   }
+# }
+# head(HIP.data,5)
+```
+
+the following code show how I store the necessary (hip) data information 
+into the new compressed matrix.
+```{r}
+#HIP.data<-matrix(0,nrow = nrow(ss.seurat),ncol = nrow(HIP.cellList))
+#HIP.data<-matrix(0,nrow = nrow(ss.seurat),ncol = 100)
+HIP.data<-Matrix(nrow = nrow(ss.seurat), ncol = nrow(HIP.cellList), data = 0, sparse = TRUE)
+rownames(HIP.data)<-rownames(ss.seurat@assays$RNA@counts)
+colnames(HIP.data)<-HIP.cellList[1:nrow(HIP.cellList),4]
+j=1
+for(i in 1:ncol(ss.seurat@assays$RNA@counts)){
+   if(colnames(ss.seurat@assays$RNA@counts)[i]==
+      HIP.cellList[j,4] && j<=nrow(HIP.cellList)
+      ){
+     #print(j)
+     #print(i)
+     HIP.data[,j]<-ss.seurat@assays$RNA@counts[,i]
+     j=j+1
+      }
+}
+#head(HIP.data,5)
+```
+
+## Create Seurat Object
+
+## With Clusters By Method
+
+```{r}
+HIP.s4obj.cluster<-CreateSeuratObject(
+  HIP.data,
+  meta.data = HIP.cellList)
+#HIP.s4obj.cluster<-RenameCells(HIP.s4obj.cluster,add.cell.id = "HIP")
+#HIP.s4obj.cluster<-RenameCells(HIP.s4obj.cluster,
+#                       add.cell.id = HIP.s4obj.cluster@meta.data$subclass_label)
+HIP.s4obj.cluster<-NormalizeData(HIP.s4obj.cluster)
+HIP.s4obj.cluster<-FindVariableFeatures(HIP.s4obj.cluster)
+all.genes<-rownames(HIP.s4obj.cluster)
+HIP.s4obj.cluster<-ScaleData(HIP.s4obj.cluster)
+HIP.s4obj.cluster<-RunPCA(
+  HIP.s4obj.cluster,features = VariableFeatures(object = HIP.s4obj.cluster))
+HIP.s4obj.cluster<-FindNeighbors(HIP.s4obj.cluster)
+HIP.s4obj.cluster<-FindClusters(HIP.s4obj.cluster,resolution = 0.7)
+HIP.s4obj.cluster<-RunTSNE(HIP.s4obj.cluster,dims =1:16)
+HIP.s4obj.cluster<-RunUMAP(HIP.s4obj.cluster,dims=1:16)
+```
+
+
+## With Subregions 
+
+```{r}
+HIP.s4obj<-CreateSeuratObject(
+  HIP.data,
+  meta.data = HIP.cellList)
+#HIP.s4obj<-RenameCells(HIP.s4obj,add.cell.id = "HIP")
+#HIP.s4obj<-RenameCells(HIP.s4obj,
+#                       add.cell.id = HIP.s4obj@meta.data$subclass_label)
+Idents(HIP.s4obj)<-HIP.s4obj@meta.data$subclass_label
+
+HIP.s4obj<-NormalizeData(HIP.s4obj)
+HIP.s4obj<-FindVariableFeatures(HIP.s4obj)
+all.genes<-rownames(HIP.s4obj)
+HIP.s4obj<-ScaleData(HIP.s4obj)
+HIP.s4obj<-RunPCA(
+  HIP.s4obj,features = VariableFeatures(object = HIP.s4obj))
+HIP.s4obj<-RunTSNE(HIP.s4obj,dims =1:16)
+HIP.s4obj<-RunUMAP(HIP.s4obj,dims=1:16)
+```
+
+## Elbowplot
+Elbowplot allows us to know how many PC we should choose for dim argument while 
+we apply PCA, Umap and Tsne. In other words, such method could help us find the 
+opitmal dimention for functions to run dimensional reduction process. 
+```{r}
+ElbowPlot(HIP.s4obj.cluster)
+```
+## rename idents 2 and 3
+
+```{r}
+HIP.s4obj.cluster<-RenameIdents(object = HIP.s4obj.cluster,'2'='CA1_Ventral','3'='CA1_Dorsal')
+```
+
+
+
+## gene test
+
+```{r}
+DimPlot(HIP.s4obj.cluster,reduction = "umap",cols
+        =c('0'='DarkRed',
+           '1'='Red',
+           'CA1_Dorsal'='LightPink',
+           'CA1_Ventral'='Orange',
+           '4'='DarkOrange',
+           '5'='GoldenRod',
+           '6'='Gold',
+           '7'='Wheat',
+           '8'='YellowGreen',
+           '9'='ForestGreen',
+           '10'='MediumSeaGreen',
+           '11'='MediumTurquoise',
+           '12'='LightSkyBlue',
+           '13'='SteelBlue',
+           '14'='DarkBlue',
+           '15'='#663399',
+           '16'='#C0C0C0',
+           '17'='LightSlateGray',
+           '18'='DarkSlateGray'))
+
+
+FeaturePlot(HIP.s4obj.cluster,features = "Dcn")
+FeaturePlot(HIP.s4obj.cluster,features = "Wfs1")
+FeaturePlot(HIP.s4obj.cluster,features = "Cadm1")
+FeaturePlot(HIP.s4obj.cluster,features = "Cadm2")
+FeaturePlot(HIP.s4obj.cluster,features = "Efnb2")
+FeaturePlot(HIP.s4obj.cluster,features = "Epha4")
+```
+
+
+## subregions feature plots tests
+
+```{r}
+DimPlot(HIP.s4obj,reduction = "umap")
+FeaturePlot(HIP.s4obj,features = "Dcn")
+FeaturePlot(HIP.s4obj,features = "Wfs1")
+FeaturePlot(HIP.s4obj,features = "Cadm1")
+FeaturePlot(HIP.s4obj,features = "Cadm2")
+FeaturePlot(HIP.s4obj,features = "Efnb2")
+FeaturePlot(HIP.s4obj,features = "Epha4")
+```
+## plot phylogenetic tree
+
+```{r}
+# HIP.s4obj.cluster<-BuildClusterTree(HIP.s4obj.cluster)
+# PlotClusterTree(HIP.s4obj.cluster)
+```
+
+
+
+## find top 5 gene
+
+```{r}
+allMarker.cluster<-FindAllMarkers(HIP.s4obj.cluster)
+#allMarker.cluster<-arrange(allMarker.cluster,cluster,desc(avg_log2FC))
+allMarker.cluster %>%
+  group_by(cluster) %>%
+  top_n(n=20,wt = avg_log2FC) ->top5
+```
+
+## heat map for top 5 gene
+
+```{r}
+DoHeatmap(HIP.s4obj.cluster,
+          features = top5$gene)+
+  scale_fill_gradientn(colors = c("blue","black","yellow"))+
+  theme(text = element_text(size = 3))
+
+```
+## heatmap for top5 genes with cell types
+
+```{r}
+allMarker<-FindAllMarkers(HIP.s4obj)
+
+```
+
+```{r}
+allMarker %>%
+  group_by(cluster) %>%
+  top_n(n=25,wt = avg_log2FC) ->top10
+top10
+```
+
+
+## draw heatmap
+
+```{r}
+DoHeatmap(HIP.s4obj,
+          features = top10$gene,size = 0.0)+
+  scale_fill_gradientn(colors = c("blue","black","yellow"))+
+  theme(text = element_text(size = 7))
+
+```
+
+## feature plots for cluster 2 and 3
+
+```{r}
+#cluster 2
+FeaturePlot(HIP.s4obj.cluster,features = "Dcn")
+FeaturePlot(HIP.s4obj.cluster,features = "Nov")
+FeaturePlot(HIP.s4obj.cluster,features = "Cpne7")
+FeaturePlot(HIP.s4obj.cluster,features = "Nnat")
+FeaturePlot(HIP.s4obj.cluster,features = "Crym")
+
+
+#cluster 3
+FeaturePlot(HIP.s4obj.cluster,features = "Egr1")
+FeaturePlot(HIP.s4obj.cluster,features = "Spink8")
+FeaturePlot(HIP.s4obj.cluster,features = "Wfs1")
+FeaturePlot(HIP.s4obj.cluster,features = "Neurod6")
+FeaturePlot(HIP.s4obj.cluster,features = "Hpca")
+```
+
+## top 20 feature plot for cluster 2 and 3
+
+```{r}
+cluster2<-filter(allMarker.cluster,cluster=='CA1_Ventral')
+for (i in 1:20){
+  print(FeaturePlot(
+    HIP.s4obj.cluster,
+    features = cluster2$gene[i]),label=T)
+  i=i+1
+}
+```
+
+```{r}
+cluster3<-filter(allMarker.cluster,cluster=='CA1_Dorsal')
+for (i in 1:20){
+  print(FeaturePlot(
+    HIP.s4obj.cluster,
+    features = cluster3$gene[i]))
+  i=i+1
+}
+```
+
+
+
+## feature plots 
+
+```{r}
+FeaturePlot(HIP.s4obj.cluster,features = "Thy1")
+FeaturePlot(HIP.s4obj.cluster,features = "Nr2f1")
+#FeaturePlot(HIP.s4obj,features = "Frzb",label = TRUE)
+```
+
+
+
+
+
+
+
+
