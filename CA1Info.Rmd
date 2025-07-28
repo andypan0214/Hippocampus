@@ -1,0 +1,180 @@
+---
+title: "CA1Info"
+author: "Yu Kuan Pan"
+date: "2025-03-03"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#source("../../../fly brain project/programs/clustersFunction.R")
+```
+
+## load hip data 
+load in the created file that previously cluster for Hippocampus data 
+```{r}
+load("./HIP 5sub info.rda")
+```
+
+
+## create the CA1 object from HIP 5sub info 
+```{r}
+HIP.meta<- filter(HIP.5sub.s4obj@meta.data, subclass_label ==  "CA1-ProS")
+```
+
+```{r}
+CA1.s4obj<- HIP.5sub.s4obj[, rownames(HIP.meta)]
+CA1.s4obj<-NormalizeData(CA1.s4obj)
+CA1.s4obj<-FindVariableFeatures(CA1.s4obj)
+all.genes<-rownames(CA1.s4obj)
+CA1.s4obj<-ScaleData(CA1.s4obj)
+CA1.s4obj<-RunPCA(
+  CA1.s4obj,features = VariableFeatures(object = CA1.s4obj))
+CA1.s4obj<-RunTSNE(CA1.s4obj,dims =1:10)
+CA1.s4obj<-RunUMAP(CA1.s4obj,dims=1:10)
+```
+
+```{r}
+DimPlot(CA1.s4obj)
+```
+
+```{r}
+FeaturePlot(CA1.s4obj,features = "Wfs1")
+FeaturePlot(CA1.s4obj, features = "Dcn")
+FeaturePlot(CA1.s4obj, features = "Tenm3")
+FeaturePlot(CA1.s4obj, features = "Pcp4")
+
+```
+
+```{r}
+TmpList<- c("Igfbp4", "Cck", "Pou3f1", "Nnat", "Cadm1", "Timp2", "Neurod6", "Epha7", "Ephb1", "Cpne2", "Htr2c", "Igfbp3",
+  "Cadm2", "Cyp26b1", "Plagl1", "Rbfox3", "Nr2f2", "Cdh8")
+
+# Open a PDF device
+pdf("FeaturePlots_TmpList.pdf", width = 8, height = 6)  # Adjust size as needed
+
+# Loop through each gene and print the FeaturePlot into the PDF
+for(i in 1:length(TmpList)) {
+  plot <- FeaturePlot(CA1.s4obj, features = TmpList[i])
+  print(plot)
+}
+
+# Close the PDF device
+dev.off()
+
+```
+
+## Creating region contains only Hippocampus (CA1, CA3, CA2)
+```{r}
+HipSub.s4obj.cluster@meta.data<- HipSub.s4obj.cluster@meta.data %>%
+  mutate(Clusters =
+           as.character(Idents(HipSub.s4obj.cluster)))
+
+HIP5sub.meta<- filter(HipSub.s4obj.cluster@meta.data, subclass_label %in% c("CA1-ProS", "CA3", "CA2-IG-FC"))
+
+# Step 1: Filter metadata to exclude SUBv
+HIP5sub.meta <- HIP5sub.meta %>%
+  filter(Clusters != "SUBv")  # Remove SUBv
+
+# Step 2: Relabel CA2-IG-FC as CA2
+HIP5sub.meta$Clusters <- ifelse(HIP5sub.meta$subclass_label == "CA2-IG-FC", 
+                                "CA2", 
+                                HIP5sub.meta$Clusters)
+
+  
+```
+
+
+```{r}
+# Step 4: Subset the Seurat object using cells in filtered metadata
+HIP5sub <- subset(HipSub.s4obj.cluster, cells = rownames(HIP5sub.meta))
+
+HIP5sub$Clusters <- HIP5sub.meta[colnames(HIP5sub), "Clusters"]
+Idents(HIP5sub)<- HIP5sub$Clusters
+```
+
+
+```{r}
+DimPlot(
+  object = HIP5sub,
+  reduction = "umap",
+  group.by = "Clusters",
+  label = TRUE,
+  label.size = 4,
+  label.color = "black",
+  repel = TRUE,
+  pt.size = 1,
+  cols = c(
+    "CA1v" = "#E36A6A",   # soft red
+    "CA1d" = "#B3B35C",   # olive green
+    "CA3d" = "#4DAF4A",   # teal green
+    "CA3v" = "#4DAFEA",   # sky blue
+    "CA2"  = "#D17ACD"    # magenta
+  )
+)
+
+
+```
+### creating the label for sub region
+```{r}
+HIP5sub@meta.data <- HIP5sub@meta.data %>%
+  mutate(subRegion = recode(subclass_label,
+                                 "CA1-ProS" = "CA1",
+                                 "CA2-IG-FC" = "CA2",
+                                 "CA3" = "CA3"))
+Idents(HIP5sub)<- HIP5sub$subRegion
+DimPlot(HIP5sub)
+```
+
+
+The most important marker genes to identified each region included: 
+Wfs1: CA1 dorsal 
+Dcn: CA1 ventral 
+Pcp4: CA2
+Prkcd: CA3 dorsal 
+Calb2: CA3 ventral 
+```{r}
+TmpList <- c(
+  "Wfs1", "Egr1", "Nr4a1", "Igfbp4", "Cadm2", "Pou3f1", "Rbfox3", "Dcn", "Cpne7", "Nov", "Nnat", "Cadm1", "Htr2c",
+  "Prkcd", "Cpne9", "Trps1", "Neurod6", "Ephb1", "Cyp26b1", "Calb2", "Plcxd3", "Prss23", "Igfbp3", "Cpne2", "Plagl1",
+  "Pcp4", "Rgs14", "Tiam2"
+)
+
+# Open a PDF device
+pdf("FeaturePlots_TmpList.pdf", width = 8, height = 6)  # Adjust size as needed
+
+Idents(HIP5sub)<- HIP5sub$Clusters
+print(DimPlot(
+  object = HIP5sub,
+  reduction = "umap",
+  #group.by = "Clusters",
+  #label = TRUE,
+  label.size = 4,
+  label.color = "black",
+  repel = TRUE,
+  pt.size = 1,
+  cols = c(
+    "CA1v" = "#E36A6A",   # soft red
+    "CA1d" = "#B3B35C",   # olive green
+    "CA3d" = "#4DAF4A",   # teal green
+    "CA3v" = "#4DAFEA",   # sky blue
+    "CA2"  = "#D17ACD"    # magenta
+  )
+))
+
+Idents(HIP5sub)<- HIP5sub$subRegion
+print(DimPlot(HIP5sub))
+
+Idents(HIP5sub)<- HIP5sub@meta.data$Clusters
+# Loop through each gene and print the FeaturePlot into the PDF
+for(i in 1:length(TmpList)) {
+  plot <- FeaturePlot(HIP5sub, features = TmpList[i])
+  print(plot)
+  vlnplot<- VlnPlot(HIP5sub, features = TmpList[i])
+  print(vlnplot)
+}
+
+# Close the PDF device
+dev.off()
+```
+

@@ -1,0 +1,322 @@
+---
+title: "HIP_subregions"
+author: "Yu-Kuan, Pan"
+date: "12/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source("./Crotexs.R")
+```
+
+# requirement 
+  this project can only rerun when loadWholeCrotex.RMD had run or
+  variables ss.seurat & HIP.s4obj are contained within Environment section 
+
+  
+# single cell rna seq 
+  Single Cell Rna seq technique: Compare five sub-regions in Hippocampus region:
+  "DG", "CA1-ProS", "SUB-ProS", and "CA3","CA2-IG-FC". 
+  
+  data: datasets are inheriance from loadWholeCrotex projects, which means all
+        the information will based on object ss.seurat, original raw data is 
+        provided from NCBI GSE185862 which collected by 
+        Allen Institute for Brain Science at Oct 20, 2021. we already separated
+        Hippocampus area from original metadata in loadWholeCrotex projects. 
+        In this project I am going to further divided 5 subregions from 
+        Hippocampus. 
+# method
+  1. seperate subregions and creat new seurat object
+  2. Elbow plot for proper dimensions, predict best dimensions while plotting
+     Tsne or Umap 
+  2. Display Tsne and Umap graphs after find nearby groups and clustering
+  3. Utilized differential expression
+  4. contruct heatmap based on avg_log2FC, expression levels
+  5. Display several featureplot based on the result from 
+     differential expression
+  
+# Summary
+  the purpose of this project is to check how different regions behave. We also
+  create sub-regiones with cluster for further prediction such as dorsal/ventral 
+  area within different sub-regions within hippocampus 
+ 
+ 
+## subset metadata
+  we only keep the sub-regions information that we are garenteed to be part of 
+  hippocampus 
+```{r}
+HIP.5sub<-filter(HIP.s4obj@meta.data,
+                 subclass_label=="DG" |
+                 subclass_label=="CA1-ProS" | 
+                 subclass_label=="SUB-ProS" |
+                 subclass_label=="CA3" |
+                 subclass_label=="CA2-IG-FC")
+```
+
+
+## creat dgcmatrix
+  create a new compress matrix which only contains the cells that identified 
+  as proper sub-region within hippocampus. 
+```{r}
+HIP.5sub.data<-Matrix(nrow = nrow(ss.seurat), ncol = nrow(HIP.5sub), data = 0, sparse = TRUE)
+rownames(HIP.5sub.data)<-rownames(ss.seurat@assays$RNA@counts)
+colnames(HIP.5sub.data)<-HIP.5sub$sample_name
+j=1
+for(i in 1:ncol(HIP.s4obj@assays$RNA@counts)){
+   if(colnames(HIP.s4obj@assays$RNA@counts)[i]==
+      HIP.5sub$sample_name[j] && j<=nrow(HIP.5sub)
+      ){
+     #print(i)
+     #print(j)
+     HIP.5sub.data[,j]<-HIP.s4obj@assays$RNA@counts[,i]
+     j=j+1
+      }
+}
+
+```
+
+
+
+## create seurat object
+
+## with cluster 
+  By testing out different argumnet for proper resolution in findcluster function.
+  we find that when resolution = 0.4, we can find clusters that properly show 
+  expression with dorsal and ventral hippocampus sub-regions information, 
+  including CA1, CA3, DG, and Sub-Pros. 
+```{r}
+HIP.5sub.s4obj.cluster<-CreateSeuratObject(
+  HIP.5sub.data,
+  meta.data = HIP.5sub)
+HIP.5sub.s4obj.cluster<-NormalizeData(HIP.5sub.s4obj.cluster)
+HIP.5sub.s4obj.cluster<-FindVariableFeatures(HIP.5sub.s4obj.cluster)
+all.genes<-rownames(HIP.5sub.s4obj.cluster)
+HIP.5sub.s4obj.cluster<-ScaleData(HIP.5sub.s4obj.cluster)
+HIP.5sub.s4obj.cluster<-RunPCA(
+  HIP.5sub.s4obj.cluster,features = VariableFeatures(object = HIP.5sub.s4obj.cluster))
+HIP.5sub.s4obj.cluster<-FindNeighbors(HIP.5sub.s4obj.cluster
+                                      ,graph.name = "clusters")
+HIP.5sub.s4obj.cluster<-FindClusters(HIP.5sub.s4obj.cluster,
+                                     resolution = 0.4
+                                     ,graph.name = "clusters",
+                                     verbose = T)
+HIP.5sub.s4obj.cluster<-RunTSNE(HIP.5sub.s4obj.cluster,dims =1:16)
+HIP.5sub.s4obj.cluster<-RunUMAP(HIP.5sub.s4obj.cluster,dims=1:16)
+```
+
+
+## with subregions 
+  The following code is only created to validate whether the re-clustered
+  ident did show express with sub-regions information 
+```{r}
+HIP.5sub.s4obj<-CreateSeuratObject(
+  HIP.5sub.data,
+  meta.data = HIP.5sub)
+Idents(HIP.5sub.s4obj)<-HIP.5sub.s4obj@meta.data$subclass_label
+
+HIP.5sub.s4obj<-NormalizeData(HIP.5sub.s4obj)
+HIP.5sub.s4obj<-FindVariableFeatures(HIP.5sub.s4obj)
+all.genes<-rownames(HIP.5sub.s4obj)
+HIP.5sub.s4obj<-ScaleData(HIP.5sub.s4obj)
+HIP.5sub.s4obj<-RunPCA(
+  HIP.5sub.s4obj,features = VariableFeatures(object = HIP.5sub.s4obj))
+HIP.5sub.s4obj<-RunTSNE(HIP.5sub.s4obj,dims =1:16)
+HIP.5sub.s4obj<-RunUMAP(HIP.5sub.s4obj,dims=1:16)
+```
+
+##Elbow plot
+```{r}
+ElbowPlot(HIP.5sub.s4obj)
+```
+
+## umap 
+
+## without custer
+```{r}
+DimPlot(HIP.5sub.s4obj,reduction = "umap")
+```
+
+## with cluster
+  Based on the clustering result we merge the cells that show CA2 expression 
+  within CA3. By the clustering results we can first seperated dorsal parts of
+  CA1 and CA3. 
+```{r}
+DimPlot(HIP.5sub.s4obj.cluster,reduction = "umap")
+```
+```{r}
+DimPlot(HIP.5sub.s4obj.cluster,reduction = "umap",label = T)
+```
+
+## label cluster 
+  label cluster based on marker gene below
+```{r}
+#HIP.temp<-HIP.5sub.s4obj.cluster
+#HIP.temp
+HIP.5sub.s4obj.cluster<- RenameIdents(HIP.5sub.s4obj.cluster,"3"= "CA1d","1"= "CA1v","5"="CA3d","6"="CA3v")
+```
+
+```{r}
+#HIP.temp
+HIP.5sub.s4obj.cluster<- RenameIdents(HIP.5sub.s4obj.cluster,
+                                      "7"="DGd","0"="DGd","2"="DGv","4"="DGv","8"="DGv")
+```
+
+
+```{r}
+DimPlot(HIP.5sub.s4obj.cluster,reduction = "umap",label = T)
+```
+
+```{r}
+#HIP.5sub.s4obj<-BuildClusterTree(HIP.5sub.s4obj)
+#PlotClusterTree(HIP.5sub.s4obj)
+```
+```{r}
+#HIP.5sub.s4obj.cluster<-BuildClusterTree(HIP.5sub.s4obj.cluster)
+#PlotClusterTree(HIP.5sub.s4obj.cluster)
+```
+
+## featureplots
+
+```{r}
+DimPlot(HIP.5sub.s4obj,reduction = "umap")
+DimPlot(HIP.5sub.s4obj.cluster,reduction = "umap")
+FeaturePlot(HIP.5sub.s4obj,features = "Dcn")
+FeaturePlot(HIP.5sub.s4obj,features = "Wfs1")
+FeaturePlot(HIP.5sub.s4obj,features = "Cadm1")
+FeaturePlot(HIP.5sub.s4obj,features = "Cadm2")
+FeaturePlot(HIP.5sub.s4obj,features = "Efnb2")
+FeaturePlot(HIP.5sub.s4obj,features = "Epha4")
+```
+
+## heatmap
+
+```{r}
+allMarker.5sub.cluster<-FindAllMarkers(HIP.5sub.s4obj.cluster)
+```
+
+```{r}
+allMarker.5sub.cluster %>% 
+  group_by(cluster) %>% 
+  top_n(n = 10, wt = avg_log2FC) -> allMarker.5sub.cluster.top10
+allMarker.5sub.cluster.top10
+```
+
+```{r}
+allMarker.5sub.cluster %>%
+  group_by(cluster) %>%
+  top_n(n=20,wt=avg_log2FC) -> top20
+DoHeatmap(HIP.5sub.s4obj.cluster,features = top20$gene)+
+  scale_fill_gradientn(colors = c("blue","black","yellow"))+
+  theme(text = element_text(size = 3))
+```
+
+```{r}
+#dorsal 
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Enpp2',label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Wfs1',label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Car2',label = T)
+
+#ventral 
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Grp',label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Grin3a',label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Cpne2',label = T)
+```
+
+
+
+```{r}
+VlnPlot(HIP.5sub.s4obj.cluster,features = 'Cpne2')
+```
+
+
+
+```{r}
+#CA1d
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Penk', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Egr1', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Wfs1', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Igfbp4', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Spink8', label = T)
+
+```
+
+```{r}
+#CA1v
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Dcn', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Nov', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Cpne7', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Timp2', label = T)
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Nnat', label = T)
+```
+
+
+
+```{r}
+#CA3d
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Prkcd')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Cpne9')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Trps1')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Slc15a1')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Bok')
+```
+
+```{r}
+#CA3v
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Calb2')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Sgcd')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Plcxd3')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Prss23')
+FeaturePlot(HIP.5sub.s4obj.cluster,features = 'Col6a1')
+```
+
+```{r}
+FeaturePlot(HIP.5sub.s4obj,features = 'Zbtb20')
+FeaturePlot(HIP.5sub.s4obj,features = 'Wfs1')
+FeaturePlot(HIP.5sub.s4obj,features = 'Col5a1')
+```
+
+## grin test
+```{r}
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin1")
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin2a")
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin2b")
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin2c")
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin2d")
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin3a")
+# FeaturePlot(HIP.5sub.s4obj,features = "Grin3b")
+```
+
+```{r}
+HIP.5sub.s4obj.cluster<-FindSubCluster(HIP.5sub.s4obj.cluster,"1","clusters",subcluster.name = "CA1cluster",resolution = 0.5)
+
+DimPlot(HIP.5sub.s4obj.cluster,reduction = "umap",group.by = "CA1cluster",label = T)
+```
+
+```{r}
+FindMarkers(HIP.5sub.s4obj.cluster,group.by = "CA1cluster",ident.1 = '1_6',
+            features = rownames(HIP.5sub.s4obj.cluster))
+```
+
+```{r}
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "AW551984")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Bace2")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Kdr")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Tacr3")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Gm34992")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "4930553C11Rik")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Gm33963")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Fbln2")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Tmem163")
+FeaturePlot(HIP.5sub.s4obj.cluster,features = "Sla")
+
+```
+
+
+```{r}
+FeaturePlot(HIP.5sub.s4obj,features = "Fyn")
+FeaturePlot(HIP.5sub.s4obj,features = "Gsk3a")
+FeaturePlot(HIP.5sub.s4obj,features = "Gsk3b")
+FeaturePlot(HIP.5sub.s4obj,features = "Mapt")
+```
+
